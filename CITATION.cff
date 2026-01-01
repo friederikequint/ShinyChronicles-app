@@ -1,0 +1,25 @@
+
+---
+
+## 📄 `CITATION.cff`
+
+```yaml
+cff-version: 1.2.0
+message: "If you use this application or fork it, please cite it as below."
+type: software
+title: "Sanity Chronicles (Shiny)"
+authors:
+  - family-names: "Quint"
+    given-names: "Friederike"
+url: "https://github.com/YOUR-USERNAME/YOUR-REPO"
+contact:
+  - name: "Friederike Quint"
+    website: "https://friederikequint.github.io"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: "Quint"
+      given-names: "Friederike"
+  title: "Sanity Chronicles (Shiny)"
+  year: 2026
+license: "MIT"
