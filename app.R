@@ -4,15 +4,44 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(jsonlite)
+library(DBI)
+library(RPostgres)
+library(pool)
+
+#### SUPABASE CONNECTION (optional) ####
+# If SUPABASE_HOST is set, the app uses Supabase (Postgres).
+# If not, you can re-enable the local CSV fallback (commented further below).
+use_db <- nzchar(Sys.getenv("SUPABASE_HOST"))
+
+pg_pool <- NULL
+if (use_db) {
+  pg_pool <- pool::dbPool(
+    drv      = RPostgres::Postgres(),
+    host     = Sys.getenv("SUPABASE_HOST"),
+    port     = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
+    dbname   = Sys.getenv("SUPABASE_DB", "postgres"),
+    user     = Sys.getenv("SUPABASE_USER", "postgres"),
+    password = Sys.getenv("SUPABASE_PASSWORD"),
+    sslmode  = "require"
+  )
+  onStop(function() pool::poolClose(pg_pool))
+}
 
 #### SETTINGS ####
 password_file <- ".secret_owner_password.r"
 
 get_owner_password <- function(path = password_file) {
+  # Prefer env var in hosted environments
+  pw_env <- Sys.getenv("OWNER_PASSWORD", unset = "")
+  if (nzchar(pw_env)) return(trimws(pw_env))
+  
+  # Fallback: local dev file
   if (!file.exists(path)) {
     stop(paste0(
-      "Password file not found: ", path, "\n",
-      "Create it with your password as a single line."
+      "Owner password not found.\n",
+      "Set OWNER_PASSWORD env var (recommended for hosting), or create file: ",
+      path,
+      " with your password as a single line."
     ))
   }
   pw <- trimws(paste(readLines(path, warn = FALSE), collapse = "\n"))
@@ -20,6 +49,10 @@ get_owner_password <- function(path = password_file) {
   pw
 }
 
+
+
+# ---- Local CSV fallback (OPTIONAL) ----
+# These are ONLY used if you uncomment the local storage code blocks below.
 owner_file <- "mood_log_owner.csv"
 guest_file <- "mood_log_guests.csv"
 
@@ -37,13 +70,12 @@ ui <- fluidPage(
     ),
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1"),
     
-    # ✅ Step 1: Guest user_id generation (localStorage) + send to Shiny as input$guest_id
+    # ✅ Guest user_id generation (localStorage) + send to Shiny as input$guest_id
     tags$script(HTML("
       (function() {
         const key = 'sanity_guest_id';
 
         function makeId() {
-          // stable-ish random id per device/browser
           return 'guest_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16);
         }
 
@@ -67,7 +99,6 @@ ui <- fluidPage(
           sendToShiny();
         });
 
-        // In case the app reconnects, try again
         document.addEventListener('shiny:connected', function() {
           sendToShiny();
         });
@@ -76,12 +107,10 @@ ui <- fluidPage(
     
     # CSS
     tags$style(HTML("
-      /* Roboto everywhere */
       body, button, input, textarea, select {
         font-family: 'Roboto', system-ui, -apple-system, Segoe UI, Arial, sans-serif !important;
       }
 
-      /* Colorful background */
       body {
         min-height: 100vh;
         background:
@@ -93,11 +122,10 @@ ui <- fluidPage(
         background-attachment: fixed;
       }
 
-      /* Glass shell (extra top padding so icons don't overlap title) */
       .app-shell {
         max-width: 860px;
         margin: 18px auto 0 auto;
-        padding: 64px 16px 22px 16px;  /* <- increased top padding */
+        padding: 64px 16px 22px 16px;
         background: rgba(255,255,255,0.86);
         border: 1px solid rgba(255,255,255,0.55);
         border-radius: 20px;
@@ -140,10 +168,9 @@ ui <- fluidPage(
         transition: transform 120ms ease, opacity 120ms ease, filter 120ms ease;
       }
 
-      /* Mood colors */
       .btn-very-bad   { background: #d32f2f; color: white; }
       .btn-bad        { background: #f57c00; color: white; }
-      .btn-ok         { background: #fbc02d; color: white; } /* OK also white */
+      .btn-ok         { background: #fbc02d; color: white; }
       .btn-good       { background: #7cb342; color: white; }
       .btn-very-good  { background: #2e7d32; color: white; }
 
@@ -154,7 +181,6 @@ ui <- fluidPage(
         filter: saturate(1) !important;
       }
 
-      /* dim others when one is selected */
       .btn-dim {
         opacity: 0.55 !important;
         filter: saturate(0.65) !important;
@@ -170,7 +196,6 @@ ui <- fluidPage(
         border: 1px solid rgba(0,0,0,0.10);
       }
 
-      /* Icons */
       .top-right-icon { position: absolute; top: 18px; right: 18px; z-index: 10; }
       .top-left-icon  { position: absolute; top: 18px; left: 18px; z-index: 10; }
 
@@ -189,7 +214,6 @@ ui <- fluidPage(
       }
       .icon-btn i { font-size: 20px; color: rgba(0,0,0,0.72); }
 
-      /* Slider styling (prettier + wider) */
       .stress-slider { padding: 4px 0 8px 0; }
       .stress-slider .irs { font-size: 16px !important; }
 
@@ -205,7 +229,6 @@ ui <- fluidPage(
         background: rgba(15, 23, 42, 0.22) !important;
       }
 
-      /* smaller handle */
       .stress-slider .irs-handle {
         width: 20px !important;
         height: 20px !important;
@@ -228,7 +251,6 @@ ui <- fluidPage(
         top: -15px;
       }
 
-      /* Put min/max labels ABOVE slider and style them */
       .stress-slider .irs-min,
       .stress-slider .irs-max {
         top: -36px !important;
@@ -298,7 +320,7 @@ ui <- fluidPage(
   div(
     class = "app-footer",
     tags$span("Purpose: private mood tracking app (owner) + optional public guest demo"),
-    tags$span("Data: stored in a Supabase (Postgres) database"),
+    tags$span(paste0("Data backend: ", if (use_db) "Supabase (Postgres)" else "Local CSV (fallback - currently disabled in code)")),
     tags$span("Download: CSV/JSON exports available on the Insights page (guest demo data is public)"),
     tags$span(textOutput("user_id_footer")),
     tags$span("Last updated: 2026-01-01")
@@ -317,7 +339,7 @@ server <- function(input, output, session) {
   selected_mood_score <- reactiveVal(NULL)
   selected_mood_label <- reactiveVal(NULL)
   
-  # tep 1: Current user_id logic
+  # ✅ Current user_id logic
   current_user_id <- reactive({
     req(mode())
     
@@ -332,7 +354,6 @@ server <- function(input, output, session) {
     as.character(gid)
   })
   
-  
   output$user_id_footer <- renderText({
     if (is.null(mode())) return("User: (not selected yet)")
     paste0("User ID: ", current_user_id())
@@ -343,63 +364,114 @@ server <- function(input, output, session) {
     session$sendCustomMessage("refreshStressLabels", list())
   })
   
-  read_log <- function(file_to_use) {
-    empty_df <- data.frame(
-      date   = as.Date(character()),
-      time   = character(),
-      mood   = integer(),
-      label  = character(),
-      stress = integer(),
-      note   = character(),
-      stringsAsFactors = FALSE
+  #### LOCAL CSV FUNCTIONS (FALLBACK) ####
+  # NOTE: Commented out on purpose to encourage Supabase use.
+  # If someone wants local-only storage, they can:
+  #   (1) set use_db <- FALSE
+  #   (2) uncomment the local_* functions below
+  #   (3) swap read_log_any()/write/insert calls accordingly
+  
+  # read_log_local <- function(file_to_use) {
+  #   empty_df <- data.frame(
+  #     date   = as.Date(character()),
+  #     time   = character(),
+  #     mood   = integer(),
+  #     label  = character(),
+  #     stress = integer(),
+  #     note   = character(),
+  #     stringsAsFactors = FALSE
+  #   )
+  #   if (!file.exists(file_to_use)) return(empty_df)
+  #
+  #   df <- tryCatch(read.csv(file_to_use, stringsAsFactors = FALSE), error = function(e) empty_df)
+  #
+  #   if (!"note" %in% names(df)) df$note <- ""
+  #   if (!"stress" %in% names(df)) df$stress <- NA_integer_
+  #
+  #   if ("date" %in% names(df)) {
+  #     if (is.numeric(df$date)) {
+  #       df$date <- as.Date(df$date, origin = "1970-01-01")
+  #     } else {
+  #       parsed <- as.Date(df$date, format = "%d-%m-%Y")
+  #       if (all(is.na(parsed)) && any(nzchar(df$date))) {
+  #         suppressWarnings(parsed2 <- as.Date(df$date))
+  #         if (all(is.na(parsed2))) {
+  #           num_try <- suppressWarnings(as.numeric(df$date))
+  #           if (!all(is.na(num_try))) parsed2 <- as.Date(num_try, origin = "1970-01-01")
+  #         }
+  #         df$date <- parsed2
+  #       } else {
+  #         df$date <- parsed
+  #       }
+  #     }
+  #   }
+  #
+  #   df
+  # }
+  #
+  # write_log_local <- function(df, file_to_use) {
+  #   if (!"note" %in% names(df)) df$note <- ""
+  #   if (!"stress" %in% names(df)) df$stress <- NA_integer_
+  #
+  #   df <- df %>% select(date, time, mood, label, stress, note)
+  #   out <- df
+  #   out$date <- format(out$date, "%d-%m-%Y")
+  #   write.csv(out, file_to_use, row.names = FALSE)
+  # }
+  #
+  # active_file <- reactive({
+  #   req(mode())
+  #   if (mode() == "owner") owner_file else guest_file
+  # })
+  
+  #### SUPABASE DB FUNCTIONS ####
+  read_log_db <- function(user_id) {
+    if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
+    
+    df <- DBI::dbGetQuery(
+      pg_pool,
+      "select entry_date as date,
+              to_char(entry_time, 'HH24:MI:SS') as time,
+              mood, label, stress, note
+       from public.mood_logs
+       where user_id = $1
+       order by entry_date, entry_time",
+      params = list(user_id)
     )
-    if (!file.exists(file_to_use)) return(empty_df)
-    
-    df <- tryCatch(read.csv(file_to_use, stringsAsFactors = FALSE), error = function(e) empty_df)
-    
-    if (!"note" %in% names(df)) df$note <- ""
-    if (!"stress" %in% names(df)) df$stress <- NA_integer_
-    
-    # Parse date robustly (dd-mm-YYYY OR numeric days since 1970)
-    if ("date" %in% names(df)) {
-      if (is.numeric(df$date)) {
-        df$date <- as.Date(df$date, origin = "1970-01-01")
-      } else {
-        parsed <- as.Date(df$date, format = "%d-%m-%Y")
-        if (all(is.na(parsed)) && any(nzchar(df$date))) {
-          suppressWarnings(parsed2 <- as.Date(df$date))
-          if (all(is.na(parsed2))) {
-            num_try <- suppressWarnings(as.numeric(df$date))
-            if (!all(is.na(num_try))) parsed2 <- as.Date(num_try, origin = "1970-01-01")
-          }
-          df$date <- parsed2
-        } else {
-          df$date <- parsed
-        }
-      }
-    }
-    
+    df$date <- as.Date(df$date)
     df
   }
   
-  write_log <- function(df, file_to_use) {
-    if (!"note" %in% names(df)) df$note <- ""
-    if (!"stress" %in% names(df)) df$stress <- NA_integer_
+  insert_log_db <- function(user_id, mode, entry_date, entry_time, mood, label, stress, note) {
+    if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
     
-    df <- df %>% select(date, time, mood, label, stress, note)
-    out <- df
-    out$date <- format(out$date, "%d-%m-%Y")
-    write.csv(out, file_to_use, row.names = FALSE)
+    DBI::dbExecute(
+      pg_pool,
+      "insert into public.mood_logs (user_id, mode, entry_date, entry_time, mood, label, stress, note)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)",
+      params = list(user_id, mode, entry_date, entry_time, mood, label, stress, note)
+    )
+  }
+  
+  delete_log_db_for_date <- function(user_id, entry_date) {
+    if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
+    
+    DBI::dbExecute(
+      pg_pool,
+      "delete from public.mood_logs
+       where user_id = $1 and entry_date = $2",
+      params = list(user_id, entry_date)
+    )
+  }
+  
+  # Unified read function (currently DB only)
+  read_log_any <- function() {
+    read_log_db(current_user_id())
   }
   
   in_time_window <- reactive({
     hr <- hour(Sys.time())
     hr >= 18 && hr <= 23
-  })
-  
-  active_file <- reactive({
-    req(mode())
-    if (mode() == "owner") owner_file else guest_file
   })
   
   #### MAIN UI ####
@@ -429,11 +501,9 @@ server <- function(input, output, session) {
         div(
           class = "app-shell",
           
-          # Back arrow (to insights / previous page)
           div(class = "top-left-icon",
               actionLink("go_back_from_questions", label = NULL, class = "icon-btn", icon("arrow-left"))),
           
-          # Calendar icon
           div(class = "top-right-icon",
               actionLink("open_insights_icon", label = NULL, class = "icon-btn", icon("calendar"))),
           
@@ -470,12 +540,12 @@ server <- function(input, output, session) {
           
           div(
             style = "
-    text-align: left;
-    font-size: 13px;
-    font-style: italic;
-    opacity: 0.75;
-    margin-bottom: 18px;
-  ",
+              text-align: left;
+              font-size: 13px;
+              font-style: italic;
+              opacity: 0.75;
+              margin-bottom: 18px;
+            ",
             "(0 = Not at all stressed – 10 = Extremely stressed)"
           ),
           
@@ -497,7 +567,6 @@ server <- function(input, output, session) {
     div(
       class = "app-shell",
       
-      # Back arrow (to questions)
       div(class = "top-left-icon",
           actionLink("back_to_questions_arrow", label = NULL, class = "icon-btn", icon("arrow-left"))),
       
@@ -600,8 +669,14 @@ server <- function(input, output, session) {
     
     now   <- Sys.time()
     today <- as.Date(now)
+    uid   <- current_user_id()
     
-    df <- read_log(active_file())
+    # read existing for this user
+    df <- tryCatch(read_log_db(uid), error = function(e) {
+      status_msg_ui(paste("DB read failed:", conditionMessage(e)))
+      return(NULL)
+    })
+    if (is.null(df)) return(invisible(NULL))
     
     if (any(df$date == today)) {
       blocked_date(today)
@@ -615,45 +690,50 @@ server <- function(input, output, session) {
       return(invisible(NULL))
     }
     
-    new_row <- data.frame(
-      date   = today,
-      time   = format(now, "%H:%M:%S"),
-      mood   = as.integer(selected_mood_score()),
-      label  = as.character(selected_mood_label()),
-      stress = as.integer(input$stress %||% 5),
-      note   = as.character(input$note %||% ""),
-      stringsAsFactors = FALSE
-    )
-    
-    df_new <- if (nrow(df) == 0) new_row else bind_rows(df, new_row)
-    write_log(df_new, active_file())
-    
-    blocked_date(NULL)
-    status_msg_ui(paste("Saved for", format(today, "%d-%m-%Y"), "✅"))
-    page("insights")
+    # insert into DB (unique constraint on (user_id, entry_date) also protects this)
+    tryCatch({
+      insert_log_db(
+        user_id     = uid,
+        mode        = mode(),
+        entry_date  = today,
+        entry_time  = format(now, "%H:%M:%S"),
+        mood        = as.integer(selected_mood_score()),
+        label       = as.character(selected_mood_label()),
+        stress      = as.integer(input$stress %||% 5),
+        note        = as.character(input$note %||% "")
+      )
+      
+      blocked_date(NULL)
+      status_msg_ui(paste("Saved for", format(today, "%d-%m-%Y"), "✅"))
+      page("insights")
+    }, error = function(e) {
+      status_msg_ui(paste("Could not save:", conditionMessage(e)))
+    })
   })
   
   #### REVERT ####
   observeEvent(input$revert_answer, {
     req(mode())
-    bd <- blocked_date() %||% as.Date(Sys.time())
+    uid <- current_user_id()
+    bd  <- blocked_date() %||% as.Date(Sys.time())
     
-    df <- read_log(active_file())
-    df_new <- df %>% filter(date != bd)
-    write_log(df_new, active_file())
-    
-    selected_mood_score(NULL)
-    selected_mood_label(NULL)
-    
-    status_msg_ui(paste0("Reverted today's answer for ", format(bd, "%d-%m-%Y"), ". You can answer again now."))
-    blocked_date(NULL)
-    page("questions")
+    tryCatch({
+      delete_log_db_for_date(uid, bd)
+      selected_mood_score(NULL)
+      selected_mood_label(NULL)
+      
+      status_msg_ui(paste0("Reverted today's answer for ", format(bd, "%d-%m-%Y"), ". You can answer again now."))
+      blocked_date(NULL)
+      page("questions")
+    }, error = function(e) {
+      status_msg_ui(paste("Could not revert:", conditionMessage(e)))
+    })
   })
   
   #### TREND ####
   output$mood_plot <- renderPlot({
     req(mode())
-    df <- read_log(active_file())
+    df <- read_log_any()
     if (nrow(df) == 0) return(NULL)
     
     df_daily <- df %>%
@@ -671,7 +751,7 @@ server <- function(input, output, session) {
   #### CALENDAR (with weekdays) ####
   output$calendar_plot <- renderPlot({
     req(mode())
-    df <- read_log(active_file())
+    df <- read_log_any()
     
     df_daily <- df %>%
       group_by(date) %>%
@@ -729,13 +809,11 @@ server <- function(input, output, session) {
     filename = function() paste0("sanity-log-", if (mode() == "owner") "owner" else "guest", ".csv"),
     contentType = "text/csv",
     content = function(file) {
-      
-      df <- read_log(active_file()) %>%
+      df <- read_log_any() %>%
         arrange(date, time) %>%
-        mutate(user_id = current_user_id()) %>%   # ✅ uses your reactive
+        mutate(user_id = current_user_id()) %>%
         select(user_id, everything())
       
-      # IMPORTANT: write.csv directly (NOT write_log)
       write.csv(df, file, row.names = FALSE, na = "")
     }
   )
@@ -744,8 +822,7 @@ server <- function(input, output, session) {
     filename = function() paste0("sanity-log-", if (mode() == "owner") "owner" else "guest", ".json"),
     contentType = "application/json",
     content = function(file) {
-      
-      df <- read_log(active_file()) %>% arrange(date, time)
+      df <- read_log_any() %>% arrange(date, time)
       
       out <- df %>%
         transmute(
