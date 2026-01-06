@@ -1,0 +1,16 @@
+# Secrets / credentials
+.Renviron
+.env
+.secret_owner_password.r
+
+# RStudio
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS
+.DS_Store
+
+# Local CSV data (if you don't want them public)
+mood_log_owner.csv
+mood_log_guests.csv
