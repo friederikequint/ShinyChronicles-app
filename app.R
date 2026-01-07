@@ -8,9 +8,7 @@ library(DBI)
 library(RPostgres)
 library(pool)
 
-#### SUPABASE CONNECTION (optional) ####
-# If SUPABASE_HOST is set, the app uses Supabase (Postgres).
-# If not, you can re-enable the local CSV fallback (commented further below).
+#### SUPABASE CONNECTION ####
 use_db <- nzchar(Sys.getenv("SUPABASE_HOST"))
 
 pg_pool <- NULL
@@ -31,11 +29,9 @@ if (use_db) {
 password_file <- ".secret_owner_password.r"
 
 get_owner_password <- function(path = password_file) {
-  # Prefer env var in hosted environments
   pw_env <- Sys.getenv("OWNER_PASSWORD", unset = "")
   if (nzchar(pw_env)) return(trimws(pw_env))
   
-  # Fallback: local dev file
   if (!file.exists(path)) {
     stop(paste0(
       "Owner password not found.\n",
@@ -48,13 +44,6 @@ get_owner_password <- function(path = password_file) {
   if (identical(pw, "")) stop("Password file is empty.")
   pw
 }
-
-
-
-# ---- Local CSV fallback (OPTIONAL) ----
-# These are ONLY used if you uncomment the local storage code blocks below.
-owner_file <- "mood_log_owner.csv"
-guest_file <- "mood_log_guests.csv"
 
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
@@ -70,7 +59,8 @@ ui <- fluidPage(
     ),
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1"),
     
-    # ✅ Guest user_id generation (localStorage) + send to Shiny as input$guest_id
+    # ✅ Guest user_id generation (localStorage) + KEEP SENDING UNTIL SHINY IS READY
+    # This fixes the "user_id NULL" insert problem.
     tags$script(HTML("
       (function() {
         const key = 'sanity_guest_id';
@@ -80,28 +70,57 @@ ui <- fluidPage(
         }
 
         function ensureGuestId() {
-          let id = localStorage.getItem(key);
+          let id = null;
+          try { id = localStorage.getItem(key); } catch(e) {}
           if (!id) {
             id = makeId();
-            localStorage.setItem(key, id);
+            try { localStorage.setItem(key, id); } catch(e) {}
           }
           return id;
         }
 
-        function sendToShiny() {
+        function pushToShiny() {
           const id = ensureGuestId();
           if (window.Shiny && Shiny.setInputValue) {
             Shiny.setInputValue('guest_id', id, {priority: 'event'});
+            return true;
+          }
+          return false;
+        }
+
+        function boot() {
+          const ok = pushToShiny();
+          if (!ok) setTimeout(boot, 200);
+        }
+
+        document.addEventListener('DOMContentLoaded', boot);
+        document.addEventListener('shiny:connected', boot);
+
+        // Mobile browsers sometimes suspend JS; re-send when returning
+        document.addEventListener('visibilitychange', function() {
+          if (!document.hidden) pushToShiny();
+        });
+        window.addEventListener('focus', function() { pushToShiny(); });
+      })();
+    ")),
+    
+    # ✅ Client time zone detection + send to Shiny as input$client_tz
+    tags$script(HTML("
+      (function() {
+        function sendTimezoneToShiny() {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+          if (window.Shiny && Shiny.setInputValue) {
+            Shiny.setInputValue('client_tz', tz, {priority: 'event'});
           }
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-          sendToShiny();
-        });
+        function bootTZ() {
+          sendTimezoneToShiny();
+          if (!(window.Shiny && Shiny.setInputValue)) setTimeout(bootTZ, 200);
+        }
 
-        document.addEventListener('shiny:connected', function() {
-          sendToShiny();
-        });
+        document.addEventListener('DOMContentLoaded', bootTZ);
+        document.addEventListener('shiny:connected', bootTZ);
       })();
     ")),
     
@@ -323,7 +342,7 @@ ui <- fluidPage(
     tags$span(paste0("Data backend: ", if (use_db) "Supabase (Postgres)" else "Local CSV (fallback - currently disabled in code)")),
     tags$span("Download: CSV/JSON exports available on the Insights page (guest demo data is public)"),
     tags$span(textOutput("user_id_footer")),
-    tags$span("Last updated: 2026-01-01")
+    tags$span("Last updated: 2026-01-07")
   )
 )
 
@@ -339,24 +358,32 @@ server <- function(input, output, session) {
   selected_mood_score <- reactiveVal(NULL)
   selected_mood_label <- reactiveVal(NULL)
   
-  # ✅ Current user_id logic
+  # Current user_id logic
   current_user_id <- reactive({
     req(mode())
     
     if (mode() == "owner") return("owner")
     
-    # guest: if guest_id hasn't arrived yet, generate a session-based fallback
-    gid <- input$guest_id
-    if (is.null(gid) || !nzchar(gid)) {
-      return(paste0("guest_session_", substr(session$token, 1, 12)))
-    }
-    
+    gid <- input$guest_id %||% ""
+    if (!nzchar(gid)) return(NA_character_)
     as.character(gid)
   })
   
   output$user_id_footer <- renderText({
-    if (is.null(mode())) return("User: (not selected yet)")
-    paste0("User ID: ", current_user_id())
+    if (is.null(mode())) return("User ID: (not selected yet)")
+    uid <- current_user_id()
+    if (is.na(uid) || !nzchar(uid)) return("User ID: (initializing...)")
+    paste0("User ID: ", uid)
+  })
+  
+  # Reset back to mode selection
+  observeEvent(input$go_back_from_questions, {
+    mode(NULL)
+    page("questions")
+    selected_mood_score(NULL)
+    selected_mood_label(NULL)
+    blocked_date(NULL)
+    status_msg_ui(NULL)
   })
   
   # Re-apply slider labels whenever we switch pages (UI re-renders)
@@ -364,69 +391,10 @@ server <- function(input, output, session) {
     session$sendCustomMessage("refreshStressLabels", list())
   })
   
-  #### LOCAL CSV FUNCTIONS (FALLBACK) ####
-  # NOTE: Commented out on purpose to encourage Supabase use.
-  # If someone wants local-only storage, they can:
-  #   (1) set use_db <- FALSE
-  #   (2) uncomment the local_* functions below
-  #   (3) swap read_log_any()/write/insert calls accordingly
-  
-  # read_log_local <- function(file_to_use) {
-  #   empty_df <- data.frame(
-  #     date   = as.Date(character()),
-  #     time   = character(),
-  #     mood   = integer(),
-  #     label  = character(),
-  #     stress = integer(),
-  #     note   = character(),
-  #     stringsAsFactors = FALSE
-  #   )
-  #   if (!file.exists(file_to_use)) return(empty_df)
-  #
-  #   df <- tryCatch(read.csv(file_to_use, stringsAsFactors = FALSE), error = function(e) empty_df)
-  #
-  #   if (!"note" %in% names(df)) df$note <- ""
-  #   if (!"stress" %in% names(df)) df$stress <- NA_integer_
-  #
-  #   if ("date" %in% names(df)) {
-  #     if (is.numeric(df$date)) {
-  #       df$date <- as.Date(df$date, origin = "1970-01-01")
-  #     } else {
-  #       parsed <- as.Date(df$date, format = "%d-%m-%Y")
-  #       if (all(is.na(parsed)) && any(nzchar(df$date))) {
-  #         suppressWarnings(parsed2 <- as.Date(df$date))
-  #         if (all(is.na(parsed2))) {
-  #           num_try <- suppressWarnings(as.numeric(df$date))
-  #           if (!all(is.na(num_try))) parsed2 <- as.Date(num_try, origin = "1970-01-01")
-  #         }
-  #         df$date <- parsed2
-  #       } else {
-  #         df$date <- parsed
-  #       }
-  #     }
-  #   }
-  #
-  #   df
-  # }
-  #
-  # write_log_local <- function(df, file_to_use) {
-  #   if (!"note" %in% names(df)) df$note <- ""
-  #   if (!"stress" %in% names(df)) df$stress <- NA_integer_
-  #
-  #   df <- df %>% select(date, time, mood, label, stress, note)
-  #   out <- df
-  #   out$date <- format(out$date, "%d-%m-%Y")
-  #   write.csv(out, file_to_use, row.names = FALSE)
-  # }
-  #
-  # active_file <- reactive({
-  #   req(mode())
-  #   if (mode() == "owner") owner_file else guest_file
-  # })
-  
   #### SUPABASE DB FUNCTIONS ####
   read_log_db <- function(user_id) {
     if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
+    if (is.na(user_id) || !nzchar(user_id)) stop("User ID not initialized yet.")
     
     df <- DBI::dbGetQuery(
       pg_pool,
@@ -444,17 +412,19 @@ server <- function(input, output, session) {
   
   insert_log_db <- function(user_id, mode, entry_date, entry_time, mood, label, stress, note) {
     if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
+    if (is.na(user_id) || !nzchar(user_id)) stop("User ID not initialized yet.")
     
     DBI::dbExecute(
       pg_pool,
       "insert into public.mood_logs (user_id, mode, entry_date, entry_time, mood, label, stress, note)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)",
+       values ($1,$2,$3,$4::time,$5,$6,$7,$8)",
       params = list(user_id, mode, entry_date, entry_time, mood, label, stress, note)
     )
   }
   
   delete_log_db_for_date <- function(user_id, entry_date) {
     if (!use_db) stop("Supabase not configured. Set SUPABASE_HOST etc. (see README).")
+    if (is.na(user_id) || !nzchar(user_id)) stop("User ID not initialized yet.")
     
     DBI::dbExecute(
       pg_pool,
@@ -464,13 +434,35 @@ server <- function(input, output, session) {
     )
   }
   
-  # Unified read function (currently DB only)
   read_log_any <- function() {
-    read_log_db(current_user_id())
+    uid <- current_user_id()
+    if (is.na(uid) || !nzchar(uid)) {
+      return(data.frame(
+        date = as.Date(character()),
+        time = character(),
+        mood = integer(),
+        label = character(),
+        stress = integer(),
+        note = character(),
+        stringsAsFactors = FALSE
+      ))
+    }
+    read_log_db(uid)
   }
   
+  #### TIME WINDOW (CLIENT TZ) ####
+  client_tz <- reactive({
+    tz <- input$client_tz %||% ""
+    if (!nzchar(tz)) tz <- Sys.timezone() %||% "UTC"
+    tz
+  })
+  
+  now_local <- reactive({
+    lubridate::with_tz(Sys.time(), tzone = client_tz())
+  })
+  
   in_time_window <- reactive({
-    hr <- hour(Sys.time())
+    hr <- lubridate::hour(now_local())
     hr >= 18 && hr <= 23
   })
   
@@ -508,7 +500,7 @@ server <- function(input, output, session) {
               actionLink("open_insights_icon", label = NULL, class = "icon-btn", icon("calendar"))),
           
           titlePanel("Sanity Chronicles – How has your day been?"),
-          div(class = "app-subtitle", paste0("Log your daily mood - ", format(Sys.Date(), "%d-%m-%Y"))),
+          div(class = "app-subtitle", paste0("Log your daily mood - ", format(as.Date(now_local()), "%d-%m-%Y"))),
           
           div(
             class = "app-instruction",
@@ -516,7 +508,6 @@ server <- function(input, output, session) {
           ),
           
           div(class = "answer-center", uiOutput("mood_buttons_ui")),
-          
           br(),
           
           div(
@@ -528,14 +519,7 @@ server <- function(input, output, session) {
           div(
             class = "stress-slider",
             style = "width: min(96vw, 760px); margin: 0 auto 6px auto;",
-            sliderInput(
-              "stress",
-              label = NULL,
-              min = 0, max = 10,
-              value = 5,
-              step = 1,
-              ticks = TRUE
-            )
+            sliderInput("stress", label = NULL, min = 0, max = 10, value = 5, step = 1, ticks = TRUE)
           ),
           
           div(
@@ -580,13 +564,11 @@ server <- function(input, output, session) {
       ),
       
       br(),
-      
       div(class = "section-title", "Trend"),
       p("Each point is the average mood for a day (1 = very bad, 5 = very good)."),
       plotOutput("mood_plot", height = "280px"),
       
       br(),
-      
       div(class = "section-title", "Calendar view: 2026"),
       p("Each cell is a day, filled with your mood color. Empty days are grey."),
       plotOutput("calendar_plot", height = "700px"),
@@ -651,7 +633,6 @@ server <- function(input, output, session) {
   observeEvent(input$open_insights_icon, { page("insights") })
   observeEvent(input$back_to_questions, { page("questions") })
   observeEvent(input$back_to_questions_arrow, { page("questions") })
-  observeEvent(input$go_back_from_questions, { page("insights") })
   
   #### SAVE ####
   observeEvent(input$save_answers, {
@@ -662,16 +643,24 @@ server <- function(input, output, session) {
       return(invisible(NULL))
     }
     
-    if (!in_time_window()) {
-      status_msg_ui("Logging is only open between 6pm and 11:59pm. Come back later!")
+    # ✅ Ensure guest_id exists before doing anything DB-related
+    uid <- current_user_id()
+    if (is.na(uid) || !nzchar(uid)) {
+      status_msg_ui(div(
+        style = "color:#b00020;font-weight:900;",
+        "Initializing guest session… please wait 1 second and click Save again."
+      ))
       return(invisible(NULL))
     }
     
-    now   <- Sys.time()
-    today <- as.Date(now)
-    uid   <- current_user_id()
+    if (!in_time_window()) {
+      status_msg_ui("There's still some time until the day ends. Come back later between 6 p.m. and 23.59 p.m.")
+      return(invisible(NULL))
+    }
     
-    # read existing for this user
+    now   <- now_local()
+    today <- as.Date(now)
+    
     df <- tryCatch(read_log_db(uid), error = function(e) {
       status_msg_ui(paste("DB read failed:", conditionMessage(e)))
       return(NULL)
@@ -690,7 +679,6 @@ server <- function(input, output, session) {
       return(invisible(NULL))
     }
     
-    # insert into DB (unique constraint on (user_id, entry_date) also protects this)
     tryCatch({
       insert_log_db(
         user_id     = uid,
@@ -714,8 +702,17 @@ server <- function(input, output, session) {
   #### REVERT ####
   observeEvent(input$revert_answer, {
     req(mode())
+    
     uid <- current_user_id()
-    bd  <- blocked_date() %||% as.Date(Sys.time())
+    if (is.na(uid) || !nzchar(uid)) {
+      status_msg_ui(div(
+        style = "color:#b00020;font-weight:900;",
+        "Guest session not ready yet. Please refresh the page and try again."
+      ))
+      return(invisible(NULL))
+    }
+    
+    bd <- blocked_date() %||% as.Date(now_local())
     
     tryCatch({
       delete_log_db_for_date(uid, bd)
@@ -838,7 +835,6 @@ server <- function(input, output, session) {
       jsonlite::write_json(out, file, pretty = TRUE, auto_unbox = TRUE, na = "null")
     }
   )
-  
 }
 
 shinyApp(ui, server)
