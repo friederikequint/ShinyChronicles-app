@@ -60,7 +60,6 @@ ui <- fluidPage(
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1"),
     
     # ✅ Guest user_id generation (localStorage) + KEEP SENDING UNTIL SHINY IS READY
-    # This fixes the "user_id NULL" insert problem.
     tags$script(HTML("
       (function() {
         const key = 'sanity_guest_id';
@@ -96,7 +95,6 @@ ui <- fluidPage(
         document.addEventListener('DOMContentLoaded', boot);
         document.addEventListener('shiny:connected', boot);
 
-        // Mobile browsers sometimes suspend JS; re-send when returning
         document.addEventListener('visibilitychange', function() {
           if (!document.hidden) pushToShiny();
         });
@@ -104,7 +102,7 @@ ui <- fluidPage(
       })();
     ")),
     
-    # ✅ Client time zone detection + send to Shiny as input$client_tz
+    # ✅ Client time zone detection
     tags$script(HTML("
       (function() {
         function sendTimezoneToShiny() {
@@ -316,6 +314,19 @@ ui <- fluidPage(
         flex-direction: column;
         gap: 4px;
       }
+
+      /* ✅ Mobile layout tweaks */
+      @media (max-width: 820px) {
+        .answer-center {
+          flex-direction: column !important;
+          align-items: stretch !important;
+          gap: 12px !important;
+        }
+        .answer-center .btn {
+          width: 100% !important;
+          min-width: 0 !important;
+        }
+      }
     ")),
     
     # JS to replace min/max label text with full phrases
@@ -484,7 +495,9 @@ server <- function(input, output, session) {
   #### Responsive calendar plot UI (dynamic height) ####
   output$calendar_plot_ui <- renderUI({
     w <- input$screen_width %||% 1000
-    height_px <- if (w < 600) 2200 else if (w < 900) 1200 else 700
+    
+    # ✅ Make phone/tablet portrait reliably big + readable
+    height_px <- if (w < 820) 2800 else 700
     plotOutput("calendar_plot", height = paste0(height_px, "px"))
   })
   
@@ -665,7 +678,6 @@ server <- function(input, output, session) {
       return(invisible(NULL))
     }
     
-    # ✅ Ensure guest_id exists before doing anything DB-related
     uid <- current_user_id()
     if (is.na(uid) || !nzchar(uid)) {
       status_msg_ui(div(
@@ -785,22 +797,15 @@ server <- function(input, output, session) {
       return("#2e7d32")
     }
     
-    # ✅ Determine layout based on viewport width
     w <- input$screen_width %||% 1000
     
-    if (w < 600) {
+    # ✅ Force 1 column for phone/tablet portrait widths
+    if (w < 820) {
       n_col <- 1
       n_row <- 12
-      cex_title <- 1.05
-      cex_week  <- 0.90
-      cex_day   <- 0.95
-      mar <- c(0.8, 0.6, 2.0, 0.6)
-    } else if (w < 900) {
-      n_col <- 2
-      n_row <- 6
       cex_title <- 1.10
-      cex_week  <- 1.00
-      cex_day   <- 1.05
+      cex_week  <- 0.95
+      cex_day   <- 1.00
       mar <- c(0.9, 0.7, 2.1, 0.7)
     } else {
       n_col <- 3
