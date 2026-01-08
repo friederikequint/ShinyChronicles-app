@@ -124,6 +124,21 @@ ui <- fluidPage(
       })();
     ")),
     
+    # ✅ Send viewport width to Shiny (for responsive calendar layout)
+    tags$script(HTML("
+      (function() {
+        function sendWidth() {
+          var w = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+          if (window.Shiny && Shiny.setInputValue) {
+            Shiny.setInputValue('screen_width', w, {priority: 'event'});
+          }
+        }
+        window.addEventListener('resize', sendWidth);
+        document.addEventListener('DOMContentLoaded', sendWidth);
+        document.addEventListener('shiny:connected', sendWidth);
+      })();
+    ")),
+    
     # CSS
     tags$style(HTML("
       body, button, input, textarea, select {
@@ -466,6 +481,13 @@ server <- function(input, output, session) {
     hr >= 18 && hr <= 23
   })
   
+  #### Responsive calendar plot UI (dynamic height) ####
+  output$calendar_plot_ui <- renderUI({
+    w <- input$screen_width %||% 1000
+    height_px <- if (w < 600) 2200 else if (w < 900) 1200 else 700
+    plotOutput("calendar_plot", height = paste0(height_px, "px"))
+  })
+  
   #### MAIN UI ####
   output$app_ui <- renderUI({
     if (is.null(mode())) {
@@ -571,7 +593,7 @@ server <- function(input, output, session) {
       br(),
       div(class = "section-title", "Calendar view: 2026"),
       p("Each cell is a day, filled with your mood color. Empty days are grey."),
-      plotOutput("calendar_plot", height = "700px"),
+      uiOutput("calendar_plot_ui"),
       
       br(),
       strong(uiOutput("status_ui"))
@@ -745,7 +767,7 @@ server <- function(input, output, session) {
       theme_minimal(base_size = 14)
   })
   
-  #### CALENDAR (with weekdays) ####
+  #### CALENDAR (responsive) ####
   output$calendar_plot <- renderPlot({
     req(mode())
     df <- read_log_any()
@@ -763,6 +785,32 @@ server <- function(input, output, session) {
       return("#2e7d32")
     }
     
+    # ✅ Determine layout based on viewport width
+    w <- input$screen_width %||% 1000
+    
+    if (w < 600) {
+      n_col <- 1
+      n_row <- 12
+      cex_title <- 1.05
+      cex_week  <- 0.90
+      cex_day   <- 0.95
+      mar <- c(0.8, 0.6, 2.0, 0.6)
+    } else if (w < 900) {
+      n_col <- 2
+      n_row <- 6
+      cex_title <- 1.10
+      cex_week  <- 1.00
+      cex_day   <- 1.05
+      mar <- c(0.9, 0.7, 2.1, 0.7)
+    } else {
+      n_col <- 3
+      n_row <- 4
+      cex_title <- 1.25
+      cex_week  <- 1.10
+      cex_day   <- 1.15
+      mar <- c(1, 1, 2, 1)
+    }
+    
     draw_month <- function(year, month) {
       first_day <- as.Date(sprintf("%04d-%02d-01", year, month))
       last_day  <- ceiling_date(first_day, "month") - days(1)
@@ -775,11 +823,11 @@ server <- function(input, output, session) {
       
       plot.new()
       plot.window(xlim = c(0.5, 7.5), ylim = c(0.5, n_rows + 1.6))
-      title(main = paste(month.name[month], year), cex.main = 1.25)
+      title(main = paste(month.name[month], year), cex.main = cex_title)
       
       weekday_labels <- c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
       for (c in 1:7) {
-        text(c, n_rows + 1.2, weekday_labels[c], cex = 1.25, font = 2)
+        text(c, n_rows + 1.2, weekday_labels[c], cex = cex_week, font = 2)
       }
       
       for (i in seq_len(n_days)) {
@@ -793,11 +841,14 @@ server <- function(input, output, session) {
         col_fill <- get_col(val)
         
         rect(col - 0.5, row - 0.5, col + 0.5, row + 0.5, col = col_fill, border = "grey85")
-        text(col, row, format(day_date, "%d"), cex = 1.25)
+        text(col, row, format(day_date, "%d"), cex = cex_day)
       }
     }
     
-    par(mfrow = c(4, 3), mar = c(1, 1, 2, 1))
+    op <- par(no.readonly = TRUE)
+    on.exit(par(op), add = TRUE)
+    
+    par(mfrow = c(n_row, n_col), mar = mar)
     for (m in 1:12) draw_month(2026, m)
   })
   
@@ -838,5 +889,3 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
-
-
