@@ -124,18 +124,38 @@ ui <- fluidPage(
     
     # ✅ Send viewport width to Shiny (for responsive calendar layout)
     tags$script(HTML("
-      (function() {
-        function sendWidth() {
-          var w = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-          if (window.Shiny && Shiny.setInputValue) {
-            Shiny.setInputValue('screen_width', w, {priority: 'event'});
-          }
-        }
-        window.addEventListener('resize', sendWidth);
-        document.addEventListener('DOMContentLoaded', sendWidth);
-        document.addEventListener('shiny:connected', sendWidth);
-      })();
-    ")),
+  (function() {
+    function getW() {
+      // iOS Safari is most reliable with visualViewport when available
+      var w = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : null;
+      if (!w) w = window.innerWidth || document.documentElement.clientWidth || 0;
+      return Math.round(w);
+    }
+
+    function sendWidth() {
+      var w = getW();
+      if (w > 0 && window.Shiny && Shiny.setInputValue) {
+        Shiny.setInputValue('screen_width', w, {priority: 'event'});
+      }
+    }
+
+    // Send repeatedly during boot because Shiny/mobile sometimes misses the first one
+    function boot() {
+      sendWidth();
+      setTimeout(sendWidth, 200);
+      setTimeout(sendWidth, 600);
+      setTimeout(sendWidth, 1200);
+    }
+
+    window.addEventListener('resize', sendWidth);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', sendWidth);
+
+    document.addEventListener('DOMContentLoaded', boot);
+    document.addEventListener('shiny:connected', boot);
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden) boot(); });
+  })();
+"))
+    ,
     
     # CSS
     tags$style(HTML("
@@ -317,16 +337,21 @@ ui <- fluidPage(
 
       /* ✅ Mobile layout tweaks */
       @media (max-width: 820px) {
-        .answer-center {
-          flex-direction: column !important;
-          align-items: stretch !important;
-          gap: 12px !important;
-        }
-        .answer-center .btn {
-          width: 100% !important;
-          min-width: 0 !important;
-        }
-      }
+  .answer-center {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 16px !important;          /* was 12px */
+    margin-top: 6px !important;
+    margin-bottom: 10px !important;
+  }
+  .answer-center .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding-top: 16px !important;  /* makes them feel less cramped */
+    padding-bottom: 16px !important;
+    font-size: 18px !important;
+  }
+}
     ")),
     
     # JS to replace min/max label text with full phrases
@@ -494,9 +519,9 @@ server <- function(input, output, session) {
   
   #### Responsive calendar plot UI (dynamic height) ####
   output$calendar_plot_ui <- renderUI({
-    w <- input$screen_width %||% 1000
+    req(input$screen_width)  # ✅ don’t render until we know width
+    w <- input$screen_width
     
-    # ✅ Make phone/tablet portrait reliably big + readable
     height_px <- if (w < 820) 2800 else 700
     plotOutput("calendar_plot", height = paste0(height_px, "px"))
   })
@@ -782,6 +807,9 @@ server <- function(input, output, session) {
   #### CALENDAR (responsive) ####
   output$calendar_plot <- renderPlot({
     req(mode())
+    req(input$screen_width)
+    w <- input$screen_width
+    
     df <- read_log_any()
     
     df_daily <- df %>%
