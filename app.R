@@ -447,27 +447,22 @@ ui <- fluidPage(
 
       /* ✅ Mobile layout tweaks */
       @media (max-width: 820px) {
-        .app-shell{
-          padding-top: 62px;
-          padding-left: 14px;
-          padding-right: 14px;
-        }
+  .answer-center {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 36px !important;          /* was 16/24 -> more space */
+    margin-top: 10px !important;
+    margin-bottom: 14px !important;
+  }
 
-        .answer-center {
-          flex-direction: column !important;
-          align-items: stretch !important;
-          gap: 16px !important;
-          margin-top: 6px !important;
-          margin-bottom: 6px !important;
-        }
-        .answer-center .btn {
-          width: 100% !important;
-          min-width: 0 !important;
-          padding-top: 18px !important;
-          padding-bottom: 18px !important;
-          font-size: 18px !important;
-        }
-      }
+  .answer-center .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding-top: 22px !important;  /* taller buttons */
+    padding-bottom: 22px !important;
+    font-size: 20px !important;    /* optional: slightly bigger */
+  }
+}
     ")),
     
     # JS to replace min/max label text with full phrases
@@ -689,7 +684,14 @@ server <- function(input, output, session) {
           div(
             class = "section-card",
             div(class = "section-head", "2) Stress"),
-            div(class = "app-instruction", style="margin:0 0 10px 0;", "How stressed did you feel today? (0–10)"),
+            div(
+              class = "app-instruction stress-q",
+              tagList(
+                "How stressed did you feel today?",
+                tags$span(class = "q-scale", "(0–10)")
+              )
+            ),
+            
             div(
               class = "stress-slider",
               style = "width: min(96vw, 760px); margin: 0 auto 6px auto;",
@@ -746,7 +748,7 @@ server <- function(input, output, session) {
       div(
         class = "section-card",
         div(class = "section-head", "Trend"),
-        p("Each point is the average mood for a day (1 = very bad, 5 = very good)."),
+        p("Each point is the mood for a day (1 = very bad, 5 = very good)."),
         plotOutput("mood_plot", height = "280px")
       ),
       
@@ -924,7 +926,7 @@ server <- function(input, output, session) {
       geom_point(size = 3) +
       geom_line() +
       scale_y_continuous(limits = c(1, 5), breaks = 1:5) +
-      labs(x = NULL, y = "Average mood") +
+      labs(x = NULL, y = "Daily mood") +
       theme_minimal(base_size = 14)
   })
   
