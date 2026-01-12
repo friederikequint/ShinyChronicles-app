@@ -199,24 +199,21 @@ ui <- fluidPage(
         background-attachment: fixed;
         color: var(--text);
       }
-      
-      /* ===== iOS rigidity / app-like behavior ===== */
-html, body {
-  height: 100%;
-  width: 100%;
-  margin: 0;
-  overflow: hidden;                 /* stop page scrolling */
-  overscroll-behavior: none;        /* stop rubber-band bounce */
-  -webkit-overflow-scrolling: auto;
-  touch-action: manipulation;       /* reduce zoom gestures */
-}
 
-/* allow internal scrolling inside the app card only */
-.app-shell {
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
+      /* ===== iOS rigidity / app-like behavior (Option A) ===== */
+      html, body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        overflow: hidden;                 /* stop page scrolling */
+        overscroll-behavior: none;        /* stop rubber-band bounce */
+        -webkit-overflow-scrolling: auto;
+        touch-action: manipulation;       /* reduce zoom gestures */
+      }
+
+      * {
+        overscroll-behavior: contain;     /* prevent scroll chaining */
+      }
 
       /* Card shell */
       .app-shell {
@@ -230,6 +227,11 @@ html, body {
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         position: relative;
+
+        /* Option A: allow internal scrolling only */
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       /* TitlePanel output */
@@ -465,22 +467,22 @@ html, body {
 
       /* ✅ Mobile layout tweaks */
       @media (max-width: 820px) {
-  .answer-center {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 36px !important;          /* was 16/24 -> more space */
-    margin-top: 10px !important;
-    margin-bottom: 14px !important;
-  }
+        .answer-center {
+          flex-direction: column !important;
+          align-items: stretch !important;
+          gap: 36px !important;
+          margin-top: 10px !important;
+          margin-bottom: 14px !important;
+        }
 
-  .answer-center .btn {
-    width: 100% !important;
-    min-width: 0 !important;
-    padding-top: 22px !important;  /* taller buttons */
-    padding-bottom: 22px !important;
-    font-size: 20px !important;    /* optional: slightly bigger */
-  }
-}
+        .answer-center .btn {
+          width: 100% !important;
+          min-width: 0 !important;
+          padding-top: 22px !important;
+          padding-bottom: 22px !important;
+          font-size: 20px !important;
+        }
+      }
     ")),
     
     # JS to replace min/max label text with full phrases
@@ -514,31 +516,31 @@ html, body {
     ")),
     
     tags$script(HTML("
-  (function () {
-    // Prevent double-tap zoom
-    var lastTouchEnd = 0;
-    document.addEventListener('touchend', function (event) {
-      var now = Date.now();
-      if (now - lastTouchEnd <= 300) {
-        event.preventDefault();
-      }
-      lastTouchEnd = now;
-    }, { passive: false });
+      (function () {
+        // Prevent double-tap zoom
+        var lastTouchEnd = 0;
+        document.addEventListener('touchend', function (event) {
+          var now = Date.now();
+          if (now - lastTouchEnd <= 300) {
+            event.preventDefault();
+          }
+          lastTouchEnd = now;
+        }, { passive: false });
 
-    // Prevent pinch zoom gestures (iOS Safari)
-    document.addEventListener('gesturestart', function(e) {
-      e.preventDefault();
-    }, { passive: false });
+        // Prevent pinch zoom gestures (iOS Safari)
+        document.addEventListener('gesturestart', function(e) {
+          e.preventDefault();
+        }, { passive: false });
 
-    document.addEventListener('gesturechange', function(e) {
-      e.preventDefault();
-    }, { passive: false });
+        document.addEventListener('gesturechange', function(e) {
+          e.preventDefault();
+        }, { passive: false });
 
-    document.addEventListener('gestureend', function(e) {
-      e.preventDefault();
-    }, { passive: false });
-  })();
-"))
+        document.addEventListener('gestureend', function(e) {
+          e.preventDefault();
+        }, { passive: false });
+      })();
+    "))
     
   ),
   
@@ -794,7 +796,6 @@ server <- function(input, output, session) {
         plotOutput("mood_plot", height = "280px")
       ),
       
-      
       div(
         class = "section-card",
         div(class = "section-head", "Actions"),
@@ -990,7 +991,7 @@ server <- function(input, output, session) {
       summarise(avg_mood = mean(mood, na.rm = TRUE), .groups = "drop")
     
     get_col <- function(m) {
-      if (is.na(m)) return("grey95")
+      if (is.na(m)) return("grey96")
       if (m <= 1.5) return("#d32f2f")
       if (m <= 2.5) return("#f57c00")
       if (m <= 3.5) return("#fbc02d")
