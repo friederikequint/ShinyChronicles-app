@@ -74,7 +74,7 @@ ui <- fluidPage(
       rel = "stylesheet",
       href = "https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap"
     ),
-    tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1"),
+    tags$meta(name = "viewport", content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"),
     
     # ✅ Guest user_id generation (localStorage) + KEEP SENDING UNTIL SHINY IS READY
     tags$script(HTML("
@@ -199,6 +199,24 @@ ui <- fluidPage(
         background-attachment: fixed;
         color: var(--text);
       }
+      
+      /* ===== iOS rigidity / app-like behavior ===== */
+html, body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;                 /* stop page scrolling */
+  overscroll-behavior: none;        /* stop rubber-band bounce */
+  -webkit-overflow-scrolling: auto;
+  touch-action: manipulation;       /* reduce zoom gestures */
+}
+
+/* allow internal scrolling inside the app card only */
+.app-shell {
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
       /* Card shell */
       .app-shell {
@@ -493,7 +511,35 @@ ui <- fluidPage(
           setTimeout(setStressEndLabels, 50);
         });
       }
-    "))
+    ")),
+    
+    tags$script(HTML("
+  (function () {
+    // Prevent double-tap zoom
+    var lastTouchEnd = 0;
+    document.addEventListener('touchend', function (event) {
+      var now = Date.now();
+      if (now - lastTouchEnd <= 300) {
+        event.preventDefault();
+      }
+      lastTouchEnd = now;
+    }, { passive: false });
+
+    // Prevent pinch zoom gestures (iOS Safari)
+    document.addEventListener('gesturestart', function(e) {
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('gesturechange', function(e) {
+      e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('gestureend', function(e) {
+      e.preventDefault();
+    }, { passive: false });
+  })();
+"))
+    
   ),
   
   uiOutput("app_ui"),
@@ -688,7 +734,7 @@ server <- function(input, output, session) {
               class = "app-instruction stress-q",
               tagList(
                 "How stressed did you feel today?",
-                tags$span(class = "q-scale", "(0–10)")
+                tags$span(class = "q-scale")
               )
             ),
             
@@ -736,13 +782,9 @@ server <- function(input, output, session) {
       
       div(
         class = "section-card",
-        div(class = "section-head", "Actions"),
-        div(
-          style = "display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;",
-          actionButton("back_to_questions", "Back to questions", class = "btn btn-ok"),
-          downloadButton("download_csv", "Download CSV", class = "btn btn-good"),
-          downloadButton("download_json", "Download JSON", class = "btn btn-good")
-        )
+        div(class = "section-head", "Calendar view: 2026"),
+        p("Each cell is a day, filled with your mood color. Empty days are grey."),
+        uiOutput("calendar_plot_ui")
       ),
       
       div(
@@ -752,11 +794,16 @@ server <- function(input, output, session) {
         plotOutput("mood_plot", height = "280px")
       ),
       
+      
       div(
         class = "section-card",
-        div(class = "section-head", "Calendar view: 2026"),
-        p("Each cell is a day, filled with your mood color. Empty days are grey."),
-        uiOutput("calendar_plot_ui")
+        div(class = "section-head", "Actions"),
+        div(
+          style = "display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;",
+          actionButton("back_to_questions", "Back to questions", class = "btn btn-ok"),
+          downloadButton("download_csv", "Download CSV", class = "btn btn-good"),
+          downloadButton("download_json", "Download JSON", class = "btn btn-good")
+        )
       ),
       
       br(),
