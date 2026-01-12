@@ -206,6 +206,7 @@ ui <- fluidPage(
         width: 100%;
         margin: 0;
         overflow: hidden;                 /* stop page scrolling */
+        overflow-x: hidden;
         overscroll-behavior: none;        /* stop rubber-band bounce */
         -webkit-overflow-scrolling: auto;
         touch-action: manipulation;       /* reduce zoom gestures */
@@ -231,7 +232,8 @@ ui <- fluidPage(
         /* Option A: allow internal scrolling only */
         max-height: calc(100vh - 24px);
         overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: auto;
       }
 
       /* TitlePanel output */
