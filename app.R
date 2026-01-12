@@ -50,6 +50,23 @@ get_owner_password <- function(path = password_file) {
 #### UI ####
 ui <- fluidPage(
   tags$head(
+    # --- Favicons (browser tabs) ---
+    tags$link(rel = "icon", type = "image/x-icon", href = "favicon.ico"),
+    tags$link(rel = "icon", type = "image/png", sizes = "16x16", href = "favicon-16x16.png"),
+    tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "favicon-32x32.png"),
+    tags$link(rel = "shortcut icon", href = "favicon.ico"),
+    
+    # --- iOS Home Screen icon ---
+    tags$link(rel = "apple-touch-icon", sizes = "180x180", href = "apple-touch-icon.png"),
+    
+    # --- PWA manifest (optional) ---
+    tags$link(rel = "manifest", href = "manifest.json"),
+    
+    # --- iOS "app-like" mode ---
+    tags$meta(name = "apple-mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "apple-mobile-web-app-status-bar-style", content = "black-translucent"),
+    tags$meta(name = "apple-mobile-web-app-title", content = "Sanity Chronicles"),
+    
     # Roboto + mobile viewport
     tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
     tags$link(rel = "preconnect", href = "https://fonts.gstatic.com", crossorigin = "anonymous"),
@@ -124,41 +141,49 @@ ui <- fluidPage(
     
     # ✅ Send viewport width to Shiny (for responsive calendar layout)
     tags$script(HTML("
-  (function() {
-    function getW() {
-      // iOS Safari is most reliable with visualViewport when available
-      var w = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : null;
-      if (!w) w = window.innerWidth || document.documentElement.clientWidth || 0;
-      return Math.round(w);
-    }
+      (function() {
+        function getW() {
+          var w = (window.visualViewport && window.visualViewport.width) ? window.visualViewport.width : null;
+          if (!w) w = window.innerWidth || document.documentElement.clientWidth || 0;
+          return Math.round(w);
+        }
 
-    function sendWidth() {
-      var w = getW();
-      if (w > 0 && window.Shiny && Shiny.setInputValue) {
-        Shiny.setInputValue('screen_width', w, {priority: 'event'});
-      }
-    }
+        function sendWidth() {
+          var w = getW();
+          if (w > 0 && window.Shiny && Shiny.setInputValue) {
+            Shiny.setInputValue('screen_width', w, {priority: 'event'});
+          }
+        }
 
-    // Send repeatedly during boot because Shiny/mobile sometimes misses the first one
-    function boot() {
-      sendWidth();
-      setTimeout(sendWidth, 200);
-      setTimeout(sendWidth, 600);
-      setTimeout(sendWidth, 1200);
-    }
+        function boot() {
+          sendWidth();
+          setTimeout(sendWidth, 200);
+          setTimeout(sendWidth, 600);
+          setTimeout(sendWidth, 1200);
+        }
 
-    window.addEventListener('resize', sendWidth);
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', sendWidth);
+        window.addEventListener('resize', sendWidth);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', sendWidth);
 
-    document.addEventListener('DOMContentLoaded', boot);
-    document.addEventListener('shiny:connected', boot);
-    document.addEventListener('visibilitychange', function(){ if (!document.hidden) boot(); });
-  })();
-"))
-    ,
+        document.addEventListener('DOMContentLoaded', boot);
+        document.addEventListener('shiny:connected', boot);
+        document.addEventListener('visibilitychange', function(){ if (!document.hidden) boot(); });
+      })();
+    ")),
     
-    # CSS
+    # ✅ Prettier CSS (full refresh)
     tags$style(HTML("
+      :root{
+        --card-radius: 24px;
+        --btn-radius: 16px;
+        --shadow-lg: 0 22px 60px rgba(0,0,0,0.18);
+        --shadow-md: 0 12px 26px rgba(0,0,0,0.12);
+        --shadow-sm: 0 8px 18px rgba(0,0,0,0.10);
+        --text: rgba(15, 23, 42, 0.92);
+        --muted: rgba(15, 23, 42, 0.70);
+        --hairline: rgba(15, 23, 42, 0.10);
+      }
+
       body, button, input, textarea, select {
         font-family: 'Roboto', system-ui, -apple-system, Segoe UI, Arial, sans-serif !important;
       }
@@ -172,65 +197,106 @@ ui <- fluidPage(
           radial-gradient(900px 700px at 85% 85%, rgba(245, 124, 0, 0.22), transparent 55%),
           linear-gradient(135deg, #101827 0%, #0b1220 50%, #0f172a 100%);
         background-attachment: fixed;
+        color: var(--text);
       }
 
+      /* Card shell */
       .app-shell {
         max-width: 860px;
         margin: 18px auto 0 auto;
-        padding: 64px 16px 22px 16px;
+        padding: 64px 18px 22px 18px;
         background: rgba(255,255,255,0.86);
         border: 1px solid rgba(255,255,255,0.55);
-        border-radius: 20px;
-        box-shadow: 0 18px 50px rgba(0,0,0,0.22);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        border-radius: var(--card-radius);
+        box-shadow: var(--shadow-lg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         position: relative;
       }
 
+      /* TitlePanel output */
+      .app-shell h2{
+        font-weight: 950;
+        letter-spacing: -0.02em;
+        margin: 0 0 8px 0;
+      }
+
       .app-subtitle {
-        font-size: 16px;
-        font-weight: 500;
-        margin-top: -8px;
-        margin-bottom: 14px;
-        opacity: 0.85;
+        font-size: 15px;
+        font-weight: 600;
+        margin-top: -6px;
+        margin-bottom: 16px;
+        color: var(--muted);
       }
 
       .app-instruction {
         font-size: 18px;
-        font-weight: 900;
+        font-weight: 950;
         margin: 10px 0 14px 0;
+        line-height: 1.25;
+        letter-spacing: -0.01em;
       }
 
+      /* Section cards inside the shell */
+      .section-card{
+        background: rgba(255,255,255,0.70);
+        border: 1px solid rgba(15,23,42,0.08);
+        border-radius: 20px;
+        box-shadow: var(--shadow-sm);
+        padding: 16px;
+        margin: 12px 0;
+      }
+
+      .section-card .section-head{
+        font-size: 16px;
+        font-weight: 950;
+        margin: 0 0 10px 0;
+        letter-spacing: -0.01em;
+      }
+
+      /* Mood buttons */
       .answer-center {
         display: flex;
         justify-content: center;
         gap: 10px;
         flex-wrap: wrap;
-        margin-bottom: 6px;
+        margin: 4px 0 0 0;
       }
 
       .btn {
-        border-radius: 14px !important;
+        border-radius: var(--btn-radius) !important;
         padding: 12px 14px !important;
-        font-weight: 900 !important;
+        font-weight: 950 !important;
         font-size: 16px !important;
         min-width: 120px;
         border: none !important;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.12);
-        transition: transform 120ms ease, opacity 120ms ease, filter 120ms ease;
+        box-shadow: var(--shadow-md);
+        transition: transform 120ms ease, opacity 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+        position: relative;
+      }
+
+      .btn:active {
+        transform: translateY(1px) scale(0.99);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .btn:focus{
+        outline: none !important;
+        box-shadow: 0 0 0 4px rgba(15,23,42,0.10), var(--shadow-md);
       }
 
       .btn-very-bad   { background: #d32f2f; color: white; }
       .btn-bad        { background: #f57c00; color: white; }
-      .btn-ok         { background: #fbc02d; color: white; }
-      .btn-good       { background: #7cb342; color: white; }
+      .btn-ok         { background: #3b82f6; color: white; }
+      .btn-good       { background: #10b981; color: white; }
       .btn-very-good  { background: #2e7d32; color: white; }
 
       .btn-selected {
-        outline: 4px solid rgba(0,0,0,0.18) !important;
+        outline: 0 !important;
         transform: translateY(-1px);
         opacity: 1 !important;
         filter: saturate(1) !important;
+        box-shadow: 0 0 0 4px rgba(15,23,42,0.12), 0 14px 28px rgba(0,0,0,0.16) !important;
       }
 
       .btn-dim {
@@ -238,16 +304,25 @@ ui <- fluidPage(
         filter: saturate(0.65) !important;
       }
 
-      .note-label { font-weight: 900; margin-top: 12px; margin-bottom: 6px; }
-      .note-help { opacity: 0.75; margin-bottom: 6px; }
+      /* Note */
+      .note-label { font-weight: 950; margin: 0 0 6px 0; }
+      .note-help { color: var(--muted); margin-bottom: 8px; }
       .note-area textarea {
-        border-radius: 14px !important;
+        border-radius: 16px !important;
         padding: 12px !important;
         font-size: 15px !important;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.08);
-        border: 1px solid rgba(0,0,0,0.10);
+        background: rgba(255,255,255,0.92);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--hairline) !important;
+        transition: box-shadow 120ms ease, border-color 120ms ease;
+      }
+      .note-area textarea:focus{
+        border-color: rgba(15,23,42,0.20) !important;
+        box-shadow: 0 0 0 4px rgba(15,23,42,0.08), var(--shadow-sm) !important;
+        outline: none !important;
       }
 
+      /* Icons */
       .top-right-icon { position: absolute; top: 18px; right: 18px; z-index: 10; }
       .top-left-icon  { position: absolute; top: 18px; left: 18px; z-index: 10; }
 
@@ -258,22 +333,25 @@ ui <- fluidPage(
         width: 44px;
         height: 44px;
         border-radius: 14px;
-        background: rgba(255,255,255,0.92);
-        border: 1px solid rgba(0,0,0,0.08);
-        box-shadow: 0 10px 18px rgba(0,0,0,0.10);
+        background: rgba(255,255,255,0.82);
+        border: 1px solid rgba(15,23,42,0.10);
+        box-shadow: var(--shadow-sm);
         cursor: pointer;
         text-decoration: none !important;
+        transition: transform 120ms ease, box-shadow 120ms ease;
       }
+      .icon-btn:active{ transform: translateY(1px); }
       .icon-btn i { font-size: 20px; color: rgba(0,0,0,0.72); }
 
-      .stress-slider { padding: 4px 0 8px 0; }
+      /* Slider */
+      .stress-slider { padding: 18px 0 10px 0; }
       .stress-slider .irs { font-size: 16px !important; }
 
       .stress-slider .irs-line {
         height: 16px !important;
         border-radius: 999px !important;
-        background: linear-gradient(90deg, rgba(46,125,50,0.20), rgba(251,192,45,0.20), rgba(211,47,47,0.20)) !important;
-        border: 1px solid rgba(0,0,0,0.06) !important;
+        background: linear-gradient(90deg, rgba(46,125,50,0.18), rgba(251,192,45,0.18), rgba(211,47,47,0.18)) !important;
+        border: 1px solid rgba(15,23,42,0.06) !important;
       }
       .stress-slider .irs-bar {
         height: 16px !important;
@@ -297,39 +375,71 @@ ui <- fluidPage(
 
       .stress-slider .irs-single {
         font-size: 16px !important;
-        font-weight: 900 !important;
+        font-weight: 950 !important;
         padding: 4px 10px !important;
         border-radius: 999px !important;
-        top: -15px;
+        top: -6px;
       }
 
       .stress-slider .irs-min,
       .stress-slider .irs-max {
-        top: -36px !important;
+        top: -22px !important;
         padding: 2px 6px !important;
         border-radius: 10px !important;
         background: rgba(15, 23, 42, 0.10) !important;
         border: 1px solid rgba(0,0,0,0.08) !important;
         font-size: 13px !important;
-        font-weight: 800 !important;
+        font-weight: 900 !important;
         color: rgba(0,0,0,0.78) !important;
         opacity: 0.98 !important;
       }
 
-      .section-title { font-size: 18px; font-weight: 900; margin: 6px 0 10px 0; }
+      /* CTA Save button */
+      .btn-save{
+        width: 100%;
+        max-width: 360px;
+        display: block;
+        margin: 6px auto 0 auto;
+        border-radius: 18px !important;
+        font-size: 18px !important;
+        padding: 16px 18px !important;
+        box-shadow: 0 18px 40px rgba(46,125,50,0.22);
+      }
 
+      /* Status pill */
+      .status-pill{
+        display: inline-block;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(15,23,42,0.06);
+        border: 1px solid rgba(15,23,42,0.10);
+        box-shadow: var(--shadow-sm);
+        font-weight: 900;
+      }
+      .status-pill.error{
+        background: rgba(211,47,47,0.10);
+        border-color: rgba(211,47,47,0.20);
+      }
+      .status-pill.success{
+        background: rgba(46,125,50,0.10);
+        border-color: rgba(46,125,50,0.18);
+      }
+
+      .section-title { font-size: 18px; font-weight: 950; margin: 6px 0 10px 0; }
+
+      /* Footer */
       .app-footer {
         margin: 18px auto 24px auto;
         max-width: 860px;
         padding: 12px 16px;
         background: rgba(255,255,255,0.80);
         border: 1px solid rgba(255,255,255,0.55);
-        border-radius: 16px;
+        border-radius: 18px;
         box-shadow: 0 14px 38px rgba(0,0,0,0.18);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
         font-size: 12px;
-        opacity: 0.82;
+        color: var(--muted);
         display: flex;
         flex-direction: column;
         gap: 4px;
@@ -337,21 +447,27 @@ ui <- fluidPage(
 
       /* ✅ Mobile layout tweaks */
       @media (max-width: 820px) {
-  .answer-center {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 16px !important;          /* was 12px */
-    margin-top: 6px !important;
-    margin-bottom: 10px !important;
-  }
-  .answer-center .btn {
-    width: 100% !important;
-    min-width: 0 !important;
-    padding-top: 16px !important;  /* makes them feel less cramped */
-    padding-bottom: 16px !important;
-    font-size: 18px !important;
-  }
-}
+        .app-shell{
+          padding-top: 62px;
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+
+        .answer-center {
+          flex-direction: column !important;
+          align-items: stretch !important;
+          gap: 16px !important;
+          margin-top: 6px !important;
+          margin-bottom: 6px !important;
+        }
+        .answer-center .btn {
+          width: 100% !important;
+          min-width: 0 !important;
+          padding-top: 18px !important;
+          padding-bottom: 18px !important;
+          font-size: 18px !important;
+        }
+      }
     ")),
     
     # JS to replace min/max label text with full phrases
@@ -519,9 +635,8 @@ server <- function(input, output, session) {
   
   #### Responsive calendar plot UI (dynamic height) ####
   output$calendar_plot_ui <- renderUI({
-    req(input$screen_width)  # ✅ don’t render until we know width
+    req(input$screen_width)
     w <- input$screen_width
-    
     height_px <- if (w < 820) 2800 else 700
     plotOutput("calendar_plot", height = paste0(height_px, "px"))
   })
@@ -533,17 +648,19 @@ server <- function(input, output, session) {
         div(
           class = "app-shell",
           titlePanel("Sanity Chronicles – How's your mood?"),
-          br(),
-          h4("Choose how to use the app"),
-          tags$hr(),
-          h5("1) Log in as owner (your personal PhD sanity log)"),
-          passwordInput("pw", "Owner password"),
-          actionButton("login", "Log in as owner", class = "btn-primary"),
-          br(), br(),
-          h5("2) Continue as guest (shared public demo)"),
-          actionButton("guest", "Continue as guest"),
-          br(), br(),
-          uiOutput("login_status_ui")
+          div(class = "app-subtitle", "A tiny daily check-in, designed to be fast."),
+          div(class = "section-card",
+              div(class = "section-head", "Choose how to use the app"),
+              tags$hr(style = "margin:10px 0; opacity:0.2;"),
+              div(style="font-weight:900; margin-bottom:6px;", "1) Log in as owner"),
+              passwordInput("pw", "Owner password"),
+              actionButton("login", "Log in as owner", class = "btn btn-ok"),
+              tags$hr(style = "margin:14px 0; opacity:0.2;"),
+              div(style="font-weight:900; margin-bottom:6px;", "2) Continue as guest"),
+              actionButton("guest", "Continue as guest", class = "btn btn-good"),
+              br(),
+              uiOutput("login_status_ui")
+          )
         )
       )
     }
@@ -559,50 +676,49 @@ server <- function(input, output, session) {
           div(class = "top-right-icon",
               actionLink("open_insights_icon", label = NULL, class = "icon-btn", icon("calendar"))),
           
-          titlePanel("Sanity Chronicles – How has your day been?"),
-          div(class = "app-subtitle", paste0("Log your daily mood - ", format(as.Date(now_local()), "%d-%m-%Y"))),
+          titlePanel("Sanity Chronicles – Daily check-in"),
+          div(class = "app-subtitle", paste0("Today: ", format(as.Date(now_local()), "%d-%m-%Y"))),
           
           div(
-            class = "app-instruction",
-            "Choose your mood, then stress, then hit Save (once per day between 6pm and 11.59pm)."
+            class = "section-card",
+            div(class = "section-head", "1) Mood"),
+            div(class = "app-instruction", style="margin:0 0 10px 0;", "How has your day been?"),
+            div(class = "answer-center", uiOutput("mood_buttons_ui"))
           ),
           
-          div(class = "answer-center", uiOutput("mood_buttons_ui")),
+          div(
+            class = "section-card",
+            div(class = "section-head", "2) Stress"),
+            div(class = "app-instruction", style="margin:0 0 10px 0;", "How stressed did you feel today? (0–10)"),
+            div(
+              class = "stress-slider",
+              style = "width: min(96vw, 760px); margin: 0 auto 6px auto;",
+              sliderInput("stress", label = NULL, min = 0, max = 10, value = 5, step = 1, ticks = TRUE)
+            ),
+            div(
+              style = "
+                text-align: left;
+                font-size: 13px;
+                font-style: italic;
+                color: rgba(15,23,42,0.65);
+                margin-top: 8px;
+              ",
+              "(0 = Not at all stressed – 10 = Extremely stressed)"
+            )
+          ),
+          
+          div(
+            class = "section-card",
+            div(class = "section-head", "3) Note"),
+            div(class = "note-label", "Optional note"),
+            div(class = "note-help", "Saved in the log as a separate column."),
+            div(class = "note-area",
+                textAreaInput("note", NULL, value = "", width = "100%", height = "90px"))
+          ),
+          
+          actionButton("save_answers", "Save", class = "btn btn-good btn-save"),
           br(),
-          
-          div(
-            class = "app-instruction",
-            style = "margin-bottom: 35px;",
-            "How stressed did you feel today? (0–10)"
-          ),
-          
-          div(
-            class = "stress-slider",
-            style = "width: min(96vw, 760px); margin: 0 auto 6px auto;",
-            sliderInput("stress", label = NULL, min = 0, max = 10, value = 5, step = 1, ticks = TRUE)
-          ),
-          
-          div(
-            style = "
-              text-align: left;
-              font-size: 13px;
-              font-style: italic;
-              opacity: 0.75;
-              margin-bottom: 18px;
-            ",
-            "(0 = Not at all stressed – 10 = Extremely stressed)"
-          ),
-          
-          br(),
-          div(class = "note-label", "Note (optional)"),
-          div(class = "note-help", "Saved in the log as a separate column."),
-          div(class = "note-area",
-              textAreaInput("note", NULL, value = "", width = "100%", height = "90px")),
-          
-          br(),
-          actionButton("save_answers", "Save", class = "btn btn-good"),
-          br(), br(),
-          strong(uiOutput("status_ui"))
+          uiOutput("status_ui")
         )
       )
     }
@@ -617,24 +733,32 @@ server <- function(input, output, session) {
       titlePanel("Sanity Chronicles – Insights"),
       
       div(
-        style = "display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;",
-        actionButton("back_to_questions", "Back to questions", class = "btn btn-ok"),
-        downloadButton("download_csv", "Download CSV"),
-        downloadButton("download_json", "Download JSON")
+        class = "section-card",
+        div(class = "section-head", "Actions"),
+        div(
+          style = "display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;",
+          actionButton("back_to_questions", "Back to questions", class = "btn btn-ok"),
+          downloadButton("download_csv", "Download CSV", class = "btn btn-good"),
+          downloadButton("download_json", "Download JSON", class = "btn btn-good")
+        )
+      ),
+      
+      div(
+        class = "section-card",
+        div(class = "section-head", "Trend"),
+        p("Each point is the average mood for a day (1 = very bad, 5 = very good)."),
+        plotOutput("mood_plot", height = "280px")
+      ),
+      
+      div(
+        class = "section-card",
+        div(class = "section-head", "Calendar view: 2026"),
+        p("Each cell is a day, filled with your mood color. Empty days are grey."),
+        uiOutput("calendar_plot_ui")
       ),
       
       br(),
-      div(class = "section-title", "Trend"),
-      p("Each point is the average mood for a day (1 = very bad, 5 = very good)."),
-      plotOutput("mood_plot", height = "280px"),
-      
-      br(),
-      div(class = "section-title", "Calendar view: 2026"),
-      p("Each cell is a day, filled with your mood color. Empty days are grey."),
-      uiOutput("calendar_plot_ui"),
-      
-      br(),
-      strong(uiOutput("status_ui"))
+      uiOutput("status_ui")
     )
   })
   
@@ -650,7 +774,7 @@ server <- function(input, output, session) {
       page("questions")
       output$login_status_ui <- renderUI(NULL)
     } else {
-      output$login_status_ui <- renderUI(div(style = "color:#b00020;font-weight:900;", "Wrong password. Try again."))
+      output$login_status_ui <- renderUI(div(class="status-pill error", "Wrong password. Try again."))
     }
   })
   
@@ -687,7 +811,7 @@ server <- function(input, output, session) {
   observeEvent(input$very_good, { selected_mood_score(5); selected_mood_label("very_good") })
   
   #### STATUS ####
-  output$status_ui <- renderUI({ status_msg_ui() %||% "" })
+  output$status_ui <- renderUI({ status_msg_ui() %||% NULL })
   
   #### NAVIGATION ####
   observeEvent(input$open_insights_icon, { page("insights") })
@@ -699,21 +823,20 @@ server <- function(input, output, session) {
     req(mode())
     
     if (is.null(selected_mood_score()) || is.null(selected_mood_label())) {
-      status_msg_ui(div(style = "color:#b00020;font-weight:900;", "Please select a mood first."))
+      status_msg_ui(div(class="status-pill error", "Please select a mood first."))
       return(invisible(NULL))
     }
     
     uid <- current_user_id()
     if (is.na(uid) || !nzchar(uid)) {
-      status_msg_ui(div(
-        style = "color:#b00020;font-weight:900;",
-        "Initializing guest session… please wait 1 second and click Save again."
-      ))
+      status_msg_ui(div(class="status-pill error",
+                        "Initializing guest session… please wait 1 second and click Save again."))
       return(invisible(NULL))
     }
     
     if (!in_time_window()) {
-      status_msg_ui("There's still some time until the day ends. Come back later between 6 p.m. and 23.59 p.m.")
+      status_msg_ui(div(class="status-pill",
+                        "There's still some time until the day ends. Come back later between 6 p.m. and 23.59 p.m."))
       return(invisible(NULL))
     }
     
@@ -721,7 +844,7 @@ server <- function(input, output, session) {
     today <- as.Date(now)
     
     df <- tryCatch(read_log_db(uid), error = function(e) {
-      status_msg_ui(paste("DB read failed:", conditionMessage(e)))
+      status_msg_ui(div(class="status-pill error", paste("DB read failed:", conditionMessage(e))))
       return(NULL)
     })
     if (is.null(df)) return(invisible(NULL))
@@ -729,10 +852,13 @@ server <- function(input, output, session) {
     if (any(df$date == today)) {
       blocked_date(today)
       status_msg_ui(
-        tagList(
-          paste0("You already answered for today (", format(today, "%d-%m-%Y"), "). Come back tomorrow! If this was a mistake, click "),
-          actionLink("revert_answer", "here"),
-          "."
+        div(
+          class="status-pill",
+          tagList(
+            paste0("You already answered for today (", format(today, "%d-%m-%Y"), "). Come back tomorrow! If this was a mistake, click "),
+            actionLink("revert_answer", "here"),
+            "."
+          )
         )
       )
       return(invisible(NULL))
@@ -751,10 +877,10 @@ server <- function(input, output, session) {
       )
       
       blocked_date(NULL)
-      status_msg_ui(paste("Saved for", format(today, "%d-%m-%Y"), "✅"))
+      status_msg_ui(div(class="status-pill success", paste("Saved for", format(today, "%d-%m-%Y"), "✅")))
       page("insights")
     }, error = function(e) {
-      status_msg_ui(paste("Could not save:", conditionMessage(e)))
+      status_msg_ui(div(class="status-pill error", paste("Could not save:", conditionMessage(e))))
     })
   })
   
@@ -764,10 +890,7 @@ server <- function(input, output, session) {
     
     uid <- current_user_id()
     if (is.na(uid) || !nzchar(uid)) {
-      status_msg_ui(div(
-        style = "color:#b00020;font-weight:900;",
-        "Guest session not ready yet. Please refresh the page and try again."
-      ))
+      status_msg_ui(div(class="status-pill error", "Guest session not ready yet. Please refresh the page and try again."))
       return(invisible(NULL))
     }
     
@@ -778,11 +901,12 @@ server <- function(input, output, session) {
       selected_mood_score(NULL)
       selected_mood_label(NULL)
       
-      status_msg_ui(paste0("Reverted today's answer for ", format(bd, "%d-%m-%Y"), ". You can answer again now."))
+      status_msg_ui(div(class="status-pill success",
+                        paste0("Reverted today's answer for ", format(bd, "%d-%m-%Y"), ". You can answer again now.")))
       blocked_date(NULL)
       page("questions")
     }, error = function(e) {
-      status_msg_ui(paste("Could not revert:", conditionMessage(e)))
+      status_msg_ui(div(class="status-pill error", paste("Could not revert:", conditionMessage(e))))
     })
   })
   
@@ -827,7 +951,6 @@ server <- function(input, output, session) {
     
     w <- input$screen_width %||% 1000
     
-    # ✅ Force 1 column for phone/tablet portrait widths
     if (w < 820) {
       n_col <- 1
       n_row <- 12
